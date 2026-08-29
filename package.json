@@ -1,0 +1,25 @@
+{
+  "name": "video-editing",
+  "version": "1.0.0",
+  "description": "TypeScript, Cucumber ve FFmpeg tabanlı video işleme projesi",
+  "main": "index.js",
+  "scripts": {
+    "test": "cucumber-js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.2.1",
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/node": "^26.4.0",
+    "ffmpeg-static": "^5.3.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}
