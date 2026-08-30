@@ -30,6 +30,7 @@ const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
 
 Given('{string} klasoru icindeki tum videolarin mevcut oldugu teyit edildiginde', function (folderName: string) {
     folderPath = path.join(ASSETS_DIR, folderName);
+    console.log(`Klasör kontrol ediliyor: ${folderPath}`);
 
     const folderExists = fs.existsSync(folderPath);
     assert.strictEqual(folderExists, true, `Klasör bulunamadı: ${folderPath}`);
@@ -37,20 +38,31 @@ Given('{string} klasoru icindeki tum videolarin mevcut oldugu teyit edildiginde'
     const isDirectory = fs.statSync(folderPath).isDirectory();
     assert.strictEqual(isDirectory, true, `Belirtilen yol bir klasör değil: ${folderPath}`);
 
-    videoFilesToMerge = fs.readdirSync(folderPath)
-        .filter((file) => VIDEO_EXTENSIONS.includes(path.extname(file).toLowerCase()))
-        .sort()
+    // Tüm dosyaları al ve video dosyalarını filtrele
+    const allFiles = fs.readdirSync(folderPath);
+    console.log(`Klasördeki tüm dosyalar: ${allFiles.join(', ')}`);
+
+    videoFilesToMerge = allFiles
+        .filter((file) => {
+            const ext = path.extname(file).toLowerCase();
+            return VIDEO_EXTENSIONS.includes(ext);
+        })
+        .sort() // İsme göre sırala
         .map((file) => path.join(folderPath, file));
+
+    console.log(`Birleştirilecek video dosyaları: ${videoFilesToMerge.join(', ')}`);
 
     assert.strictEqual(
         videoFilesToMerge.length > 0,
         true,
-        `"${folderName}" klasöründe birleştirilecek video bulunamadı: ${folderPath}`
+        `"${folderName}" klasöründe birleştirilecek video bulunamadı. Desteklenen formatlar: ${VIDEO_EXTENSIONS.join(', ')}`
     );
 
+    // Her dosyanın varlığını kontrol et
     videoFilesToMerge.forEach((filePath) => {
         const exists = fs.existsSync(filePath);
         assert.strictEqual(exists, true, `Video dosyası bulunamadı: ${filePath}`);
+        console.log(`✅ Dosya mevcut: ${filePath}`);
     });
 });
 
@@ -431,23 +443,48 @@ When(
         outputFile = path.join(ASSETS_DIR, targetFileName);
         safeUnlink(outputFile);
 
+        // videoFilesToMerge dizisinin dolu olduğundan emin ol
+        if (!videoFilesToMerge || videoFilesToMerge.length === 0) {
+            throw new Error('Birleştirilecek video dosyası bulunamadı. Önce Given adımını çalıştırdığınızdan emin olun.');
+        }
+
+        console.log(`Birleştirilecek dosyalar: ${videoFilesToMerge.join(', ')}`);
+
         await new Promise<void>((resolve, reject) => {
             const command = ffmpeg();
-            videoFilesToMerge.forEach((filePath) => command.input(filePath));
 
-            let filterInputs = '';
-            videoFilesToMerge.forEach((_, index) => {
-                filterInputs += `[${index}:v][${index}:a]`;
+            // Tüm dosyaları input olarak ekle
+            videoFilesToMerge.forEach((filePath) => {
+                if (fs.existsSync(filePath)) {
+                    command.input(filePath);
+                } else {
+                    reject(new Error(`Dosya bulunamadı: ${filePath}`));
+                }
             });
 
-            const filterString = `${filterInputs}concat=n=${videoFilesToMerge.length}:v=1:a=1[outv][outa]`;
+            // Alternatif birleştirme yöntemi - concat demuxer kullan
+            // Bu yöntem daha kararlı çalışır
+            const concatList = videoFilesToMerge.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
+            const listFilePath = path.join(ASSETS_DIR, 'concat_list.txt');
+            fs.writeFileSync(listFilePath, concatList);
 
             command
-                .complexFilter(filterString)
-                .outputOptions(['-map [outv]', '-map [outa]'])
+                .input(listFilePath)
+                .inputOptions(['-f', 'concat', '-safe', '0'])
                 .output(outputFile)
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
+                .outputOptions(['-c', 'copy']) // Kopyalama yaparak hızlı birleştirme
+                .on('end', () => {
+                    console.log(`Video birleştirme tamamlandı: ${outputFile}`);
+                    // Geçici dosyayı temizle
+                    try { fs.unlinkSync(listFilePath); } catch(e) {}
+                    resolve();
+                })
+                .on('error', (err) => {
+                    console.error('FFmpeg Birleştirme Hatası:', err);
+                    // Geçici dosyayı temizle
+                    try { fs.unlinkSync(listFilePath); } catch(e) {}
+                    reject(err);
+                })
                 .run();
         });
     }
